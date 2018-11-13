@@ -1,14 +1,13 @@
 import os, glob, re, signal, sys, argparse, threading, time
 from random import shuffle
-import random
-import tensorflow as tf
 from PIL import Image
 import numpy as np
 import scipy.io
 from MODEL import model
 from PSNR import psnr
 from TEST import test_VDSR
-#from MODEL_FACTORIZED import model_factorized
+import tensorflow as tf
+
 DATA_PATH = "./data/train/"
 IMG_SIZE = (41, 41)
 BATCH_SIZE = 64
@@ -28,9 +27,9 @@ TEST_DATA_PATH = "./data/test/"
 
 def get_train_list(data_path):
 	l = glob.glob(os.path.join(data_path,"*"))
-	print len(l)
+	print(len(l))
 	l = [f for f in l if re.search("^\d+.mat$", os.path.basename(f))]
-	print len(l)
+	print(len(l))
 	train_list = []
 	for f in l:
 		if os.path.exists(f):
@@ -75,8 +74,7 @@ if __name__ == '__main__':
 	train_list = get_train_list(DATA_PATH)
 	
 	if not USE_QUEUE_LOADING:
-		print "not use queue loading, just sequential loading..."
-
+		print("not use queue loading, just sequential loading...")
 
 		### WITHOUT ASYNCHRONOUS DATA LOADING ###
 
@@ -86,7 +84,7 @@ if __name__ == '__main__':
 		### WITHOUT ASYNCHRONOUS DATA LOADING ###
     
 	else:
-		print "use queue loading"	
+		print("use queue loading")	
 
 
 		### WITH ASYNCHRONOUS DATA LOADING ###
@@ -132,9 +130,9 @@ if __name__ == '__main__':
 		tf.initialize_all_variables().run()
 
 		if model_path:
-			print "restore model..."
+			print("restore model...")
 			saver.restore(sess, model_path)
-			print "Done"
+			print("Done")
 
 		### WITH ASYNCHRONOUS DATA LOADING ###
 		def load_and_enqueue(coord, file_list, enqueue_op, train_input_single, train_gt_single, idx=0, num_thread=1):
@@ -148,14 +146,14 @@ if __name__ == '__main__':
 					sess.run(enqueue_op, feed_dict={train_input_single:input_img, train_gt_single:gt_img})
 					count+=1
 			except Exception as e:
-				print "stopping...", idx, e
+				print("stopping...", idx, e)
 		### WITH ASYNCHRONOUS DATA LOADING ###
 		threads = []
 		def signal_handler(signum,frame):
 			sess.run(q.close(cancel_pending_enqueues=True))
 			coord.request_stop()
 			coord.join(threads)
-			print "Done"
+			print("Done")
 			sys.exit(1)
 		original_sigint = signal.getsignal(signal.SIGINT)
 		signal.signal(signal.SIGINT, signal_handler)
@@ -165,28 +163,28 @@ if __name__ == '__main__':
 			num_thread=20
 			coord = tf.train.Coordinator()
 			for i in range(num_thread):
-				length = len(train_list)/num_thread
+				length = int(len(train_list)/num_thread)
 				t = threading.Thread(target=load_and_enqueue, args=(coord, train_list[i*length:(i+1)*length],enqueue_op, train_input_single, train_gt_single,  i, num_thread))
 				threads.append(t)
 				t.start()
-			print "num thread:" , len(threads)
+			print("num thread:" , len(threads))
 
-			for epoch in xrange(0, MAX_EPOCH):
+			for epoch in range(MAX_EPOCH):
 				max_step=len(train_list)//BATCH_SIZE
 				for step in range(max_step):
 					_,l,output,lr, g_step, summary = sess.run([opt, loss, train_output, learning_rate, global_step, merged])
-					print "[epoch %2.4f] loss %.4f\t lr %.5f"%(epoch+(float(step)*BATCH_SIZE/len(train_list)), np.sum(l)/BATCH_SIZE, lr)
+					print("[epoch %2.4f] loss %.4f\t lr %.5f"%(epoch+(float(step)*BATCH_SIZE/len(train_list)), np.sum(l)/BATCH_SIZE, lr))
 					file_writer.add_summary(summary, step+epoch*max_step)
 					#print "[epoch %2.4f] loss %.4f\t lr %.5f\t norm %.2f"%(epoch+(float(step)*BATCH_SIZE/len(train_list)), np.sum(l)/BATCH_SIZE, lr, norm)
 				saver.save(sess, "./checkpoints/VDSR_adam_epoch_%03d.ckpt" % epoch ,global_step=global_step)
 		else:
-			for epoch in xrange(0, MAX_EPOCH):
+			for epoch in range(MAX_EPOCH):
 				for step in range(len(train_list)//BATCH_SIZE):
 					offset = step*BATCH_SIZE
 					input_data, gt_data, cbcr_data = get_image_batch(train_list, offset, BATCH_SIZE)
 					feed_dict = {train_input: input_data, train_gt: gt_data}
 					_,l,output,lr, g_step = sess.run([opt, loss, train_output, learning_rate, global_step], feed_dict=feed_dict)
-					print "[epoch %2.4f] loss %.4f\t lr %.5f"%(epoch+(float(step)*BATCH_SIZE/len(train_list)), np.sum(l)/BATCH_SIZE, lr)
+					print("[epoch %2.4f] loss %.4f\t lr %.5f"%(epoch+(float(step)*BATCH_SIZE/len(train_list)), np.sum(l)/BATCH_SIZE, lr))
 					del input_data, gt_data, cbcr_data
 
 				saver.save(sess, "./checkpoints/VDSR_const_clip_0.01_epoch_%03d.ckpt" % epoch ,global_step=global_step)
