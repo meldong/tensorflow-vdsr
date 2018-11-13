@@ -53,5 +53,4 @@ The checkpoint is file is [here](https://drive.google.com/file/d/0B4KsMpU0BeosbD
 
 ## Remarks
 - The training is further accelerated with asynchronous data fetch.
-- Tried to accelerate the network with the idea from [Factorized CNN](https://128.84.21.199/pdf/1608.04337v1.pdf). It is possible to implement with `tf.nn.depthwise_conv2d` and 1x1 convolution, but not so effective.
 - Thanks to @harungunaydin 's comment, **AdamOptimizer** gives a much more stable training. There's an option added.
