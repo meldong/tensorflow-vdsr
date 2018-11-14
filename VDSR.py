@@ -20,9 +20,9 @@ USE_QUEUE_LOADING = True
 
 # filelist
 l = glob.glob(os.path.join(DATA_PATH, "*"))
-print(len(l))
+print("total samples : ", len(l))
 l = [f for f in l if re.search("^\d+.mat$", os.path.basename(f))]
-print(len(l))
+print("total images : ", len(l))
 train_list = []
 for f in l:
   if os.path.exists(f):
@@ -50,7 +50,7 @@ tf.summary.scalar("loss", loss)
 
 global_step = tf.Variable(0, trainable=False)
 learning_rate = tf.train.exponential_decay(BASE_LR, global_step*BATCH_SIZE, len(train_list)*LR_STEP_SIZE, LR_RATE, staircase=True)
-tf.summary.scalar("learning rate", learning_rate)
+tf.summary.scalar("learning_rate", learning_rate)
 
 # optimizer
 optimizer = tf.train.AdamOptimizer(learning_rate)
@@ -59,72 +59,69 @@ opt = optimizer.minimize(loss, global_step=global_step)
 saver = tf.train.Saver(weights, max_to_keep=0)
 
 random.shuffle(train_list)
-config = tf.ConfigProto()
 
-with tf.Session(config=config) as sess:
-  #TensorBoard open log with "tensorboard --logdir=logs"
-  if not os.path.exists('logs'):
-    os.mkdir('logs')
-  merged = tf.summary.merge_all()
-  file_writer = tf.summary.FileWriter('logs', sess.graph)
+sess = tf.Session(config=tf.ConfigProto())
 
-  tf.initialize_all_variables().run()
+#TensorBoard open log with "tensorboard --logdir=logs"
+if not os.path.exists('logs'):
+  os.mkdir('logs')
+merged = tf.summary.merge_all()
+file_writer = tf.summary.FileWriter('logs', sess.graph)
 
-  # Restore variables from checkpoint in disk.
-  ckpt = tf.train.get_checkpoint_state('checkpoints')
-  if ckpt and ckpt.model_checkpoint_path:
-    tf.logging.info('Loading checkpoint %s', ckpt.model_checkpoint_path)
-    saver.restore(sess, ckpt.model_checkpoint_path)
-    epoch = ckpt.model_checkpoint_path.split('/')[-1].split('_')[-1].split('.')[0]
-    if not epoch.isdigit():
-      epoch = 0
-    else:
-      epoch = int(epoch)
-  else:
-    tf.logging.info('No checkpoint file found, training debut...')
+sess.run(tf.global_variables_initializer())
+
+# Restore variables from checkpoint in disk.
+ckpt = tf.train.get_checkpoint_state('checkpoints')
+if ckpt and ckpt.model_checkpoint_path:
+  saver.restore(sess, ckpt.model_checkpoint_path)
+  epoch = ckpt.model_checkpoint_path.split('/')[-1].split('_')[-1].split('.')[0]
+  if not epoch.isdigit():
     epoch = 0
+  else:
+    epoch = int(epoch)
+else:
+  tf.logging.info('No checkpoint file found, training debut...')
+  epoch = 0
 
-  ### WITH ASYNCHRONOUS DATA LOADING ###
-  def load_and_enqueue(coord, file_list, enqueue_op, train_input_single, train_gt_single, idx=0, num_thread=1):
-    count = 0;
-    length = len(file_list)
-    try:
-      while not coord.should_stop():
-        i = count % length;
-        input_img = scipy.io.loadmat(file_list[i][1])['patch'].reshape([IMG_SIZE[0], IMG_SIZE[1], 1])
-        gt_img = scipy.io.loadmat(file_list[i][0])['patch'].reshape([IMG_SIZE[0], IMG_SIZE[1], 1])
-        sess.run(enqueue_op, feed_dict={train_input_single:input_img, train_gt_single:gt_img})
-        count+=1
-    except Exception as e:
-      print("stopping...", idx, e)
-  ### WITH ASYNCHRONOUS DATA LOADING ###
-
-  # create threads
-  threads = []
-  num_thread=200
-  coord = tf.train.Coordinator()
-  for i in range(num_thread):
-    length = int(len(train_list)/num_thread)
-    t = threading.Thread(target=load_and_enqueue, args=(coord, train_list[i*length:(i+1)*length],enqueue_op, train_input_single, train_gt_single,  i, num_thread))
-    threads.append(t)
-    t.start()
-  print("num thread:" , len(threads))
-
+def load_and_enqueue(coord, file_list, enqueue_op, train_input_single, train_gt_single, idx=0, num_thread=1):
+  count = 0;
+  length = len(file_list)
   try:
     while not coord.should_stop():
-      max_step=len(train_list)//BATCH_SIZE
-      for step in range(max_step):
-        _,l,output,lr, g_step, summary = sess.run([opt, loss, train_output, learning_rate, global_step, merged])
-        print("[epoch %2.4f] loss %.4f\t lr %.5f"%(epoch+(float(step)*BATCH_SIZE/len(train_list)), np.sum(l)/BATCH_SIZE, lr))
-        file_writer.add_summary(summary, step+epoch*max_step)
-        #print "[epoch %2.4f] loss %.4f\t lr %.5f\t norm %.2f"%(epoch+(float(step)*BATCH_SIZE/len(train_list)), np.sum(l)/BATCH_SIZE, lr, norm)
-      epoch += 1
-      saver.save(sess, "./checkpoints/VDSR_adam_epoch_%03d.ckpt" % epoch ,global_step=global_step)
-  except tf.errors.OutOfRangeError:
-    print('Done training for %d epochs, %d steps.' % epoch)
-  finally:
-    # When done, ask the threads to stop.
-    coord.request_stop()
+      i = count % length;
+      input_img = scipy.io.loadmat(file_list[i][1])['patch'].reshape([IMG_SIZE[0], IMG_SIZE[1], 1])
+      gt_img = scipy.io.loadmat(file_list[i][0])['patch'].reshape([IMG_SIZE[0], IMG_SIZE[1], 1])
+      sess.run(enqueue_op, feed_dict={train_input_single:input_img, train_gt_single:gt_img})
+      count+=1
+  except Exception as e:
+    print("stopping...", idx, e)
+
+# create threads
+threads = []
+num_thread=200
+coord = tf.train.Coordinator()
+for i in range(num_thread):
+  length = int(len(train_list)/num_thread)
+  t = threading.Thread(target=load_and_enqueue, args=(coord, train_list[i*length:(i+1)*length],enqueue_op, train_input_single, train_gt_single,  i, num_thread))
+  threads.append(t)
+  t.start()
+print("threads number : " , len(threads))
+
+try:
+  while not coord.should_stop():
+    max_step=len(train_list)//BATCH_SIZE
+    for step in range(max_step):
+      _,l,output,lr, g_step, summary = sess.run([opt, loss, train_output, learning_rate, global_step, merged])
+      print("[epoch %2.4f] loss %.4f\t lr %.5f"%(epoch+(float(step)*BATCH_SIZE/len(train_list)), np.sum(l)/BATCH_SIZE, lr))
+      file_writer.add_summary(summary, step+epoch*max_step)
+      #print "[epoch %2.4f] loss %.4f\t lr %.5f\t norm %.2f"%(epoch+(float(step)*BATCH_SIZE/len(train_list)), np.sum(l)/BATCH_SIZE, lr, norm)
+    epoch += 1
+    saver.save(sess, "./checkpoints/VDSR_adam_epoch_%03d.ckpt" % epoch ,global_step=global_step)
+except tf.errors.OutOfRangeError:
+  print('Done training for %d epochs, %d steps.' % epoch)
+finally:
+  # When done, ask the threads to stop.
+  coord.request_stop()
 
 # Wait for threads to finish.
 coord.join(threads)
