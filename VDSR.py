@@ -29,18 +29,21 @@ for f in l:
     if os.path.exists(f[:-4]+"_2.mat"): train_list.append([f, f[:-4]+"_2.mat"])
     if os.path.exists(f[:-4]+"_3.mat"): train_list.append([f, f[:-4]+"_3.mat"])
     if os.path.exists(f[:-4]+"_4.mat"): train_list.append([f, f[:-4]+"_4.mat"])
+random.shuffle(train_list)
 
-# asynchronous queue loading
+# placeholder
 train_input_single = tf.placeholder(tf.float32, shape=(IMG_SIZE[0], IMG_SIZE[1], 1))
 train_gt_single = tf.placeholder(tf.float32, shape=(IMG_SIZE[0], IMG_SIZE[1], 1))
+
+# asynchronous queue loading
 q = tf.FIFOQueue(10000, [tf.float32, tf.float32], [[IMG_SIZE[0], IMG_SIZE[1], 1], [IMG_SIZE[0], IMG_SIZE[1], 1]])
 enqueue_op = q.enqueue([train_input_single, train_gt_single])
 train_input, train_gt = q.dequeue_many(BATCH_SIZE)
 
 # network
 shared_model = tf.make_template('shared_model', model)
-#train_output, weights = model(train_input)
 train_output, weights = shared_model(train_input)
+#train_output, weights = model(train_input)
 
 # loss
 loss = tf.reduce_sum(tf.nn.l2_loss(tf.subtract(train_output, train_gt)))
@@ -48,6 +51,7 @@ for w in weights:
   loss += tf.nn.l2_loss(w)*1e-4
 tf.summary.scalar("loss", loss)
 
+# lr
 global_step = tf.Variable(0, trainable=False)
 learning_rate = tf.train.exponential_decay(BASE_LR, global_step*BATCH_SIZE, len(train_list)*LR_STEP_SIZE, LR_RATE, staircase=True)
 tf.summary.scalar("learning_rate", learning_rate)
@@ -56,11 +60,9 @@ tf.summary.scalar("learning_rate", learning_rate)
 optimizer = tf.train.AdamOptimizer(learning_rate)
 opt = optimizer.minimize(loss, global_step=global_step)
 
-saver = tf.train.Saver(weights, max_to_keep=0)
-
-random.shuffle(train_list)
-
+# session
 sess = tf.Session(config=tf.ConfigProto())
+sess.run(tf.global_variables_initializer())
 
 #TensorBoard open log with "tensorboard --logdir=logs"
 if not os.path.exists('logs'):
@@ -68,9 +70,8 @@ if not os.path.exists('logs'):
 merged = tf.summary.merge_all()
 file_writer = tf.summary.FileWriter('logs', sess.graph)
 
-sess.run(tf.global_variables_initializer())
-
 # Restore variables from checkpoint in disk.
+saver = tf.train.Saver(weights, max_to_keep=0)
 ckpt = tf.train.get_checkpoint_state('checkpoints')
 if ckpt and ckpt.model_checkpoint_path:
   saver.restore(sess, ckpt.model_checkpoint_path)
@@ -150,7 +151,6 @@ sess.close()
 #  gt_list = np.array(gt_list)
 #  gt_list.resize([BATCH_SIZE, IMG_SIZE[1], IMG_SIZE[0], 1])
 #  return input_list, gt_list, np.array(cbcr_list)
-
 
 
 #        for step in range(len(train_list)//BATCH_SIZE):
